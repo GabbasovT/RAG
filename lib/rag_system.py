@@ -22,6 +22,7 @@ from transformers import (
     RagRetriever,
     RagTokenForGeneration
 )
+import os
 import numpy as np
 from typing import List, Dict, Tuple
 from vector_index import FAISSIndex, AnnoyIndex
@@ -37,13 +38,25 @@ class RAGSystem:
     2. Generation: BART генерирует ответ используя найденные документы
     """
     
-    def __init__(self, index_type="faiss", use_pretrained_rag=True):
+    def __init__(
+        self, 
+        index_type="faiss", 
+        use_pretrained_rag=True,
+        fine_tuned_model_path=None,
+        question_encoder_path=None,
+        context_encoder_path=None,
+        generator_path=None
+    ):
         """
         Инициализация RAG системы
         
         Args:
             use_pretrained_rag: Если True, используем готовую RAG модель от HuggingFace
                                Если False, создаем RAG из отдельных компонентов
+            fine_tuned_model_path: Путь к fine-tuned модели (для загрузки всех компонентов сразу)
+            question_encoder_path: Путь к fine-tuned question encoder
+            context_encoder_path: Путь к fine-tuned context encoder
+            generator_path: Путь к fine-tuned генератору
         """
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -52,7 +65,12 @@ class RAGSystem:
         if use_pretrained_rag:
             self._init_pretrained_rag()
         else:
-            self._init_custom_rag()
+            self._init_custom_rag(
+                fine_tuned_model_path=fine_tuned_model_path,
+                question_encoder_path=question_encoder_path,
+                context_encoder_path=context_encoder_path,
+                generator_path=generator_path
+            )
     
     def _init_pretrained_rag(self):
         """
@@ -71,33 +89,42 @@ class RAGSystem:
         
         self.model.to(self.device)
     
-    def _init_custom_rag(self):
+    def _init_custom_rag(
+        self,
+        fine_tuned_model_path=None,
+        question_encoder_path=None,
+        context_encoder_path=None,
+        generator_path=None
+    ):
         """
         Создание RAG системы из отдельных компонентов:
         - DPR для retrieval
         - BART для generation
+        
+        Args:
+            fine_tuned_model_path: Путь к директории с fine-tuned моделью (все компоненты)
+            question_encoder_path: Путь к fine-tuned question encoder
+            context_encoder_path: Путь к fine-tuned context encoder
+            generator_path: Путь к fine-tuned генератору
         """
+        
+        if fine_tuned_model_path:
+            q_encoder_path = os.path.join(fine_tuned_model_path, "question_encoder")
+            c_encoder_path = os.path.join(fine_tuned_model_path, "context_encoder")
+            gen_path = os.path.join(fine_tuned_model_path, "generator")
+        else:
+            q_encoder_path = question_encoder_path or "facebook/dpr-question_encoder-single-nq-base"
+            c_encoder_path = context_encoder_path or "facebook/dpr-ctx_encoder-single-nq-base"
+            gen_path = generator_path or "facebook/bart-large"
 
-        self.dpr_question_encoder = DPRQuestionEncoder.from_pretrained(
-            "facebook/dpr-question_encoder-single-nq-base"
-        )
-        self.dpr_question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained(
-            "facebook/dpr-question_encoder-single-nq-base"
-        )
+        self.dpr_question_encoder = DPRQuestionEncoder.from_pretrained(q_encoder_path)
+        self.dpr_question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained(q_encoder_path)
 
-        self.dpr_context_encoder = DPRContextEncoder.from_pretrained(
-            "facebook/dpr-ctx_encoder-single-nq-base"
-        )
-        self.dpr_context_tokenizer = DPRContextEncoderTokenizer.from_pretrained(
-            "facebook/dpr-ctx_encoder-single-nq-base"
-        )
+        self.dpr_context_encoder = DPRContextEncoder.from_pretrained(c_encoder_path)
+        self.dpr_context_tokenizer = DPRContextEncoderTokenizer.from_pretrained(c_encoder_path)
 
-        self.bart_model = BartForConditionalGeneration.from_pretrained(
-            "facebook/bart-large"
-        )
-        self.bart_tokenizer = BartTokenizer.from_pretrained(
-            "facebook/bart-large"
-        )
+        self.bart_model = BartForConditionalGeneration.from_pretrained(gen_path)
+        self.bart_tokenizer = BartTokenizer.from_pretrained(gen_path)
         
         self.dpr_question_encoder.to(self.device)
         self.dpr_context_encoder.to(self.device)
