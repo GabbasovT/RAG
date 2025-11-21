@@ -125,12 +125,7 @@ class DPRRetrieverTrainer:
             # Вычисляем similarity scores между queries и всеми passages
             # [batch_size, total_passages]
             scores = self.compute_similarity(query_embeddings, all_passages)
-            
-            # Positive passages находятся на диагонали (индексы 0, 1, 2, ..., batch_size-1)
             labels = torch.arange(batch_size, device=self.device)
-            
-            # Cross-entropy loss
-            # Модель должна присвоить высокий score соответствующему positive passage
             loss = F.cross_entropy(scores, labels)
             
         else:
@@ -147,7 +142,6 @@ class DPRRetrieverTrainer:
                     query_embeddings.unsqueeze(-1)  # [batch_size, hidden_dim, 1]
                 ).squeeze(-1)  # [batch_size, num_negatives]
                 
-                # Объединяем scores
                 all_scores = torch.cat([positive_scores, negative_scores], dim=1)
             else:
                 all_scores = positive_scores
@@ -176,7 +170,6 @@ class DPRRetrieverTrainer:
         self.question_encoder.train()
         self.context_encoder.train()
         
-        # Токенизация queries
         query_inputs = self.question_tokenizer(
             batch['query'],
             padding=True,
@@ -185,7 +178,6 @@ class DPRRetrieverTrainer:
             return_tensors='pt'
         ).to(self.device)
         
-        # Токенизация positive passages
         positive_inputs = self.context_tokenizer(
             batch['positive_passage'],
             padding=True,
@@ -194,11 +186,8 @@ class DPRRetrieverTrainer:
             return_tensors='pt'
         ).to(self.device)
         
-        # Токенизация negative passages
-        # batch['negative_passages'] это список списков
         negative_embeddings = None
         if 'negative_passages' in batch and len(batch['negative_passages']) > 0:
-            # Flatten negative passages
             all_negatives = []
             for negatives_list in batch['negative_passages']:
                 all_negatives.extend(negatives_list)
@@ -212,12 +201,10 @@ class DPRRetrieverTrainer:
                     return_tensors='pt'
                 ).to(self.device)
                 
-                # Получаем embeddings для negatives
-                with torch.no_grad():  # Можно убрать если хотим обучать context encoder на negatives
+                with torch.no_grad():
                     negative_outputs = self.context_encoder(**negative_inputs)
                     negative_embeddings_flat = negative_outputs.pooler_output
                 
-                # Reshape обратно в [batch_size, num_negatives, hidden_dim]
                 batch_size = len(batch['query'])
                 num_negatives_per_query = len(batch['negative_passages'][0])
                 negative_embeddings = negative_embeddings_flat.reshape(
@@ -226,14 +213,12 @@ class DPRRetrieverTrainer:
                     -1
                 )
         
-        # Forward pass
         query_outputs = self.question_encoder(**query_inputs)
         query_embeddings = query_outputs.pooler_output
         
         positive_outputs = self.context_encoder(**positive_inputs)
         positive_embeddings = positive_outputs.pooler_output
         
-        # Вычисляем loss
         loss = self.compute_loss(
             query_embeddings,
             positive_embeddings,
@@ -241,11 +226,9 @@ class DPRRetrieverTrainer:
             use_in_batch_negatives=use_in_batch_negatives
         )
         
-        # Backward pass
         self.optimizer.zero_grad()
         loss.backward()
         
-        # Gradient clipping
         torch.nn.utils.clip_grad_norm_(self.question_encoder.parameters(), max_norm=1.0)
         torch.nn.utils.clip_grad_norm_(self.context_encoder.parameters(), max_norm=1.0)
         
@@ -276,11 +259,9 @@ class DPRRetrieverTrainer:
         Returns:
             Список loss values
         """
-        # Инициализируем optimizer
         params = list(self.question_encoder.parameters()) + list(self.context_encoder.parameters())
         self.optimizer = AdamW(params, lr=self.learning_rate)
         
-        # Инициализируем scheduler
         total_steps = len(train_dataloader) * num_epochs
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer,
@@ -305,7 +286,6 @@ class DPRRetrieverTrainer:
                 
                 global_step += 1
                 
-                # Логирование
                 if global_step % logging_steps == 0:
                     avg_loss = np.mean(epoch_losses[-logging_steps:])
                     progress_bar.set_postfix({'loss': f'{avg_loss:.4f}'})
