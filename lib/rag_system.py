@@ -25,8 +25,8 @@ from transformers import (
 import os
 import numpy as np
 from typing import List, Dict, Tuple
-from vector_index import FAISSIndex, AnnoyIndex
-from document_chunking import DocumentChunking
+from .vector_index import FAISSIndex, AnnoyIndex, SimpleIndex
+from .document_chunking import DocumentChunking
 
 
 class RAGSystem:
@@ -147,16 +147,22 @@ class RAGSystem:
             documents: Список текстов документов
         """
 
-        self.documents = documents
+        # Чанкинг каждого документа отдельно
+        chunked_docs = []
+        for doc in documents:
+            chunks = DocumentChunking.chunk_document(
+                doc,
+                chunk_size=100,
+                overlap=20
+            )
+            chunked_docs.extend(chunks)
+        
+        # Сохраняем чанки как документы
+        self.documents = chunked_docs
         embeddings = []
-        documents = DocumentChunking.chunk_document(
-            " ".join(documents),
-            chunk_size=100,
-            overlap=20
-        )
 
         with torch.no_grad():
-            for doc in documents:
+            for doc in chunked_docs:
                 inputs = self.dpr_context_tokenizer(
                     doc,
                     return_tensors="pt",
@@ -176,6 +182,8 @@ class RAGSystem:
             self.index = FAISSIndex(dimension)
         elif self.index_type == "annoy":
             self.index = AnnoyIndex(dimension)
+        elif self.index_type == "simple":
+            self.index = SimpleIndex(dimension)
         
         self.index.add_embeddings(self.document_embeddings)
     

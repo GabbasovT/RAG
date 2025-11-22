@@ -91,3 +91,51 @@ class AnnoyIndex(VectorIndex):
         scores = 1.0 - np.array(distances)
 
         return np.array([scores]), np.array([result_indices])
+
+
+class SimpleIndex(VectorIndex):
+    """
+    Простой векторный индекс с полным перебором
+    Использует косинусное сходство для измерения близости
+    """
+
+    def __init__(self, dimension: int):
+        """
+        Args:
+            dimension: Размерность векторов
+        """
+        self.dimension = dimension
+        self.embeddings = None
+
+    def add_embeddings(self, embeddings: np.ndarray):
+        """Добавляет эмбеддинги в индекс с L2 нормализацией"""
+        # Нормализуем векторы для корректного косинусного расстояния
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        self.embeddings = embeddings / (norms + 1e-8)
+
+    def search(self, query_embedding: np.ndarray, top_k: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Поиск top_k ближайших векторов через полный перебор
+        
+        Косинусное сходство = (A · B) / (||A|| * ||B||)
+        После нормализации это просто скалярное произведение
+        """
+        # Нормализуем query
+        query_norm = np.linalg.norm(query_embedding, axis=1, keepdims=True)
+        query_normalized = query_embedding / (query_norm + 1e-8)
+        
+        # Вычисляем косинусное сходство со всеми векторами
+        similarities = np.dot(self.embeddings, query_normalized.T).squeeze()
+        
+        # Обработка случая с одним документом (скаляр)
+        if similarities.ndim == 0:
+            similarities = np.array([similarities])
+        
+        # Ограничиваем top_k количеством документов
+        top_k = min(top_k, len(similarities))
+        
+        # Находим top_k индексов с максимальным сходством
+        top_indices = np.argsort(similarities)[::-1][:top_k]
+        top_scores = similarities[top_indices]
+        
+        return np.array([top_scores]), np.array([top_indices])

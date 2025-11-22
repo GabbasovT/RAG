@@ -2,16 +2,16 @@ import os
 from lib.rag_system import RAGSystem
 import argparse
 
-def demo_custom_rag():
+def demo_custom_rag(index_type="simple"):
     """
     Демонстрация работы кастомной RAG системы (DPR + BART)
     """
 
     print("="*80)
-    print("ДЕМОНСТРАЦИЯ КАСТОМНОЙ RAG СИСТЕМЫ (DPR + BART)")
+    print(f"ДЕМОНСТРАЦИЯ КАСТОМНОЙ RAG СИСТЕМЫ (DPR + BART) с {index_type.upper()} индексом")
     print("="*80)
     
-    rag = RAGSystem(use_pretrained_rag=False)
+    rag = RAGSystem(use_pretrained_rag=False, index_type=index_type)
     documents = [
         "Python is a high-level programming language known for its simplicity and readability.",
         "Machine learning is a subset of artificial intelligence that enables systems to learn from data.",
@@ -73,8 +73,15 @@ if __name__ == "__main__":
         choices=["custom", "pretrained"],
         help="Режим работы: custom (DPR+BART) или pretrained"
     )
+    parser.add_argument(
+        "--index",
+        type=str,
+        default="simple",
+        choices=["faiss", "annoy", "simple"],
+        help="Тип векторного индекса: faiss, annoy или simple"
+    )
     args = parser.parse_args()
     if args.mode == "custom":
-        demo_custom_rag()
+        demo_custom_rag(index_type=args.index)
     else:
         demo_pretrained_rag()
