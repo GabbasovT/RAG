@@ -22,6 +22,8 @@ from transformers import (
     RagRetriever,
     RagTokenForGeneration
 )
+from transformers import T5ForConditionalGeneration, T5Tokenizer
+
 import os
 import numpy as np
 from typing import List, Dict, Tuple
@@ -115,7 +117,7 @@ class RAGSystem:
         else:
             q_encoder_path = question_encoder_path or "facebook/dpr-question_encoder-single-nq-base"
             c_encoder_path = context_encoder_path or "facebook/dpr-ctx_encoder-single-nq-base"
-            gen_path = generator_path or "facebook/bart-large"
+            gen_path = generator_path or "facebook/bart-large-cnn"
 
         self.dpr_question_encoder = DPRQuestionEncoder.from_pretrained(q_encoder_path)
         self.dpr_question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained(q_encoder_path)
@@ -123,8 +125,8 @@ class RAGSystem:
         self.dpr_context_encoder = DPRContextEncoder.from_pretrained(c_encoder_path)
         self.dpr_context_tokenizer = DPRContextEncoderTokenizer.from_pretrained(c_encoder_path)
 
-        self.bart_model = BartForConditionalGeneration.from_pretrained(gen_path)
-        self.bart_tokenizer = BartTokenizer.from_pretrained(gen_path)
+        self.bart_model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-base")
+        self.bart_tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
         
         self.dpr_question_encoder.to(self.device)
         self.dpr_context_encoder.to(self.device)
@@ -187,7 +189,7 @@ class RAGSystem:
         
         self.index.add_embeddings(self.document_embeddings)
     
-    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[str, float]]:
+    def retrieve(self, query: str, top_k: int = 2) -> List[Tuple[str, float]]:
         """
         Поиск релевантных документов для запроса
         
@@ -231,7 +233,12 @@ class RAGSystem:
         """
 
         context = " ".join(context_docs)
-        input_text = f"question: {query} context: {context}"
+        input_text = (
+            "Answer the question based on the context.\n\n"
+            f"Context: {context}\n\n"
+            f"Question: {query}\n\n"
+            "Answer:"
+        )        
         
         inputs = self.bart_tokenizer(
             input_text,
@@ -241,6 +248,14 @@ class RAGSystem:
             padding=True
         ).to(self.device)
         
+        print("goida0")
+        print(inputs)
+        
+        print(self.bart_tokenizer.decode(
+            inputs["input_ids"][0].cpu(),
+            skip_special_tokens=True
+        ))        
+        
         with torch.no_grad():
             outputs = self.bart_model.generate(
                 inputs["input_ids"],
@@ -249,11 +264,16 @@ class RAGSystem:
                 early_stopping=True,
                 no_repeat_ngram_size=3
             )
+        print("goida1")
+        print(outputs)
         
         answer = self.bart_tokenizer.decode(outputs[0], skip_special_tokens=True)
+        print("goida2")
+        print(answer)
+
         return answer
     
-    def answer_question_custom(self, question: str, top_k: int = 5) -> Dict:
+    def answer_question_custom(self, question: str, top_k: int = 2) -> Dict:
         """
         Полный цикл RAG для кастомной реализации:
         1. Retrieve релевантных документов
