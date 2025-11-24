@@ -244,6 +244,7 @@ class RAGSystem:
         with torch.no_grad():
             outputs = self.bart_model.generate(
                 inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
                 max_length=max_length,
                 num_beams=4,
                 early_stopping=True,
