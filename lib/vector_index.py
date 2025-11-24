@@ -1,13 +1,11 @@
 """
 Векторные индексы для поиска по сходству
-Поддерживаются FAISS и Annoy
 """
 
 import numpy as np
 from typing import Tuple
-import faiss
-from annoy import AnnoyIndex as Annoy
 from abc import ABC, abstractmethod
+import hnswlib
 
 
 class VectorIndex(ABC):
@@ -35,62 +33,56 @@ class VectorIndex(ABC):
         pass
 
 
-class FAISSIndex(VectorIndex):
+class HNSWIndex(VectorIndex):
     """
-    Векторный индекс на основе FAISS
-    Использует Inner Product (IP) для измерения сходства
+    Векторный индекс на основе HNSWlib.
+    Использует косинусное расстояние.
     """
 
-    def __init__(self, dimension: int):
+    def __init__(self, dimension: int, space: str = 'cosine'):
         """
         Args:
-            dimension: Размерность векторов
+            dimension: Размерность векторов.
+            space: Пространство для измерения расстояния ('l2', 'ip', 'cosine').
         """
-        self.index = faiss.IndexFlatIP(dimension)
+        self.dimension = dimension
+        self.space = space
+        self.index = hnswlib.Index(space=self.space, dim=self.dimension)
+        self.is_initialized = False
 
     def add_embeddings(self, embeddings: np.ndarray):
-        """Добавляет эмбеддинги в индекс с L2 нормализацией"""
-        faiss.normalize_L2(embeddings)
-        self.index.add(embeddings)
+        """Добавляет эмбеддинги в индекс."""
+        if not self.is_initialized:
+            # Начальная инициализация индекса
+            self.index.init_index(max_elements=len(embeddings), ef_construction=200, M=16)
+            self.is_initialized = True
+        else:
+            # Увеличение размера индекса при необходимости
+            current_max = self.index.get_max_elements()
+            new_size = self.index.get_current_count() + len(embeddings)
+            if new_size > current_max:
+                self.index.resize_index(new_size)
+
+        # Добавление новых элементов
+        start_id = self.index.get_current_count()
+        ids = np.arange(start_id, start_id + len(embeddings))
+        self.index.add_items(embeddings, ids)
 
     def search(self, query_embedding: np.ndarray, top_k: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Поиск top_k ближайших векторов"""
-        faiss.normalize_L2(query_embedding)
-        scores, indices = self.index.search(query_embedding, top_k)
+        """
+        Поиск top_k ближайших векторов.
+        HNSWlib возвращает расстояние, которое нужно преобразовать в схожесть.
+        Для косинусного пространства: схожесть = 1 - расстояние.
+        """
+        if self.index.get_current_count() == 0:
+            return np.array([]), np.array([])
+
+        indices, distances = self.index.knn_query(query_embedding, k=top_k)
+
+        # Преобразование расстояния в оценку схожести
+        scores = 1 - distances
+
         return scores, indices
-
-
-class AnnoyIndex(VectorIndex):
-    """
-    Векторный индекс на основе Annoy
-    Использует угловую метрику для измерения сходства
-    """
-
-    def __init__(self, dimension: int, n_trees: int = 10):
-        """
-        Args:
-            dimension: Размерность векторов
-            n_trees: Количество деревьев для построения (больше = точнее, но медленнее)
-        """
-        self.index = Annoy(dimension, 'angular')
-        self.n_trees = n_trees
-        self.count = 0
-
-    def add_embeddings(self, embeddings: np.ndarray):
-        """Добавляет эмбеддинги в индекс и строит дерево"""
-        for emb in embeddings:
-            self.index.add_item(self.count, emb)
-            self.count += 1
-        self.index.build(self.n_trees)
-
-    def search(self, query_embedding: np.ndarray, top_k: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Поиск top_k ближайших векторов с конвертацией расстояний в скоры"""
-        result_indices, distances = self.index.get_nns_by_vector(
-            query_embedding[0], top_k, include_distances=True
-        )
-        scores = 1.0 - np.array(distances)
-
-        return np.array([scores]), np.array([result_indices])
 
 
 class SimpleIndex(VectorIndex):

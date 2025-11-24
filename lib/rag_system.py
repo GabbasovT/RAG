@@ -27,7 +27,7 @@ from transformers import T5ForConditionalGeneration, T5Tokenizer
 import os
 import numpy as np
 from typing import List, Dict, Tuple
-from .vector_index import FAISSIndex, AnnoyIndex, SimpleIndex
+from .vector_index import HNSWIndex, SimpleIndex
 from .document_chunking import DocumentChunking
 
 
@@ -42,7 +42,7 @@ class RAGSystem:
     
     def __init__(
         self, 
-        index_type="faiss", 
+        index_type="hnsw", 
         use_pretrained_rag=True,
         fine_tuned_model_path=None,
         question_encoder_path=None,
@@ -180,12 +180,12 @@ class RAGSystem:
         self.document_embeddings = np.vstack(embeddings)
         dimension = self.document_embeddings.shape[1]
 
-        if self.index_type == "faiss":
-            self.index = FAISSIndex(dimension)
-        elif self.index_type == "annoy":
-            self.index = AnnoyIndex(dimension)
+        if self.index_type == "hnsw":
+            self.index = HNSWIndex(dimension)
         elif self.index_type == "simple":
             self.index = SimpleIndex(dimension)
+        else:
+            raise ValueError(f"Unknown index_type: {self.index_type}")
         
         self.index.add_embeddings(self.document_embeddings)
     
